@@ -203,25 +203,61 @@ const { chromium } = require('playwright-core');
 
 ## Launching a CDP browser manually
 
-If no browser is listening on port 9222, launch one first:
+If no browser is listening on port 9222, launch one first.
+
+### Find the browser binary
+
+Browser binary names vary by distro and install method. Resolve with a fallback chain:
 
 ```bash
-# macOS (adjust path to your Chrome)
-/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir=/tmp/chrome-cdp-profile
+# Linux — try common names in order
+BROWSER=$(which google-chrome 2>/dev/null \
+  || which chromium-browser 2>/dev/null \
+  || which chromium 2>/dev/null \
+  || which google-chrome-stable 2>/dev/null)
 
-# Linux
-google-chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir=/tmp/chrome-cdp-profile
+# macOS — Chromium-based browsers
+BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# Fallbacks:
+#   /Applications/Chromium.app/Contents/MacOS/Chromium
+#   /Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary
+#   /Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge
+#   /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
 ```
 
-Verify the endpoint is alive:
+### Pre-launch cleanup
+
+Kill any stale instance still holding port 9222 (otherwise the new launch will fail silently):
 
 ```bash
-curl -s http://localhost:9222/json/version
+# Kill any existing Chromium on port 9222
+pkill -f "chrom.*9222" 2>/dev/null || true
+sleep 0.5
 ```
+
+### Launch and verify
+
+Launch the browser in the background, then loop until the CDP endpoint is ready:
+
+```bash
+$BROWSER \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chrome-cdp-profile \
+  --no-first-run \
+  --no-default-browser-check \
+  &>/tmp/chromium-cdp.log &
+
+# Wait for CDP endpoint to become available (up to 10s)
+for i in $(seq 1 20); do
+  if curl -s http://localhost:9222/json/version | jq -r '.webSocketDebuggerUrl' 2>/dev/null; then
+    echo "CDP ready"
+    break
+  fi
+  sleep 0.5
+done
+```
+
+The `jq` pipe returns the WebSocket URL on success (non-zero exit otherwise), so the `if` condition is self-verifying.
 
 ## Firefox
 
@@ -246,6 +282,48 @@ const { firefox } = require('playwright-core');
 ```
 
 > ⚠️ `firefox.launch()` requires the Playwright Firefox browser binary. Install it with `npx playwright-core install firefox` (~80 MB). This is **not** the system Firefox; Playwright patches its own copy for automation stability.
+
+## Troubleshooting
+
+### Browser fails to launch (non-headless) on Wayland
+
+If you see Vulkan/Wayland errors like:
+
+```
+ERROR:ui/ozone/platform/wayland/gpu/wayland_surface_factory.cc:252]
+'--ozone-platform=wayland' is not compatible with Vulkan.
+```
+
+This is usually non-fatal — the browser may still start successfully. If it doesn't, add `--ozone-platform=x11` to the launch flags:
+
+```bash
+$BROWSER \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chrome-cdp-profile \
+  --ozone-platform=x11 \
+  ...
+```
+
+If X11 is also unavailable (e.g. headless server), fall back to `--headless`:
+
+```bash
+$BROWSER \
+  --headless \
+  --remote-debugging-port=9222 \
+  ...
+```
+
+### Port 9222 already in use
+
+If the CDP launch fails, check what's holding the port:
+
+```bash
+ss -tlnp | grep 9222
+# or
+lsof -i :9222
+```
+
+Then `pkill -f "chrom.*9222"` and retry.
 
 ## Notes
 
