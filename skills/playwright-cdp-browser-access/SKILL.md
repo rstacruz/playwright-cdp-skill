@@ -28,7 +28,7 @@ fi
 Scripts are plain Node.js executed with `node -e` or written to a file in `/tmp/playwright-cdp/`. The pattern:
 
 1. `require('playwright-core')`
-2. `chromium.connectOverCDP('http://localhost:9222')`
+2. `chromium.connectOverCDP('http://127.0.0.1:9222')` — **use `127.0.0.1` not `localhost`** (Node may resolve `localhost` to IPv6 `::1`, which Chromium often doesn't bind)
 3. Pick a context and page (or create new ones)
 4. Automate
 5. Close the browser
@@ -39,7 +39,7 @@ Scripts are plain Node.js executed with `node -e` or written to a file in `/tmp/
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0];
   const page = context.pages()[0];
 
@@ -59,7 +59,7 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0];
   const page = context.pages()[0];
 
@@ -88,7 +88,7 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const page = browser.contexts()[0].pages()[0];
 
   await page.screenshot({ path: '/tmp/screenshot.png', fullPage: true });
@@ -105,11 +105,11 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0];
 
   const page = await context.newPage();
-  await page.goto('https://github.com');
+  await page.goto('https://github.com', { timeout: 15000 });
   await page.waitForTimeout(2000);
 
   await page.screenshot({ path: '/tmp/github.png' });
@@ -126,7 +126,7 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const page = browser.contexts()[0].pages()[0];
 
   const heading = await page.evaluate(() =>
@@ -149,11 +149,11 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0];
   const page = await context.newPage();
 
-  await page.goto('https://example.com');
+  await page.goto('https://example.com', { timeout: 15000 });
   console.log('Tab URL:', page.url());
 
   await browser.close();  // closes the connection, keeps the browser running
@@ -167,7 +167,7 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const page = browser.contexts()[0].pages()
     .find(p => p.url().includes('example.com'));
 
@@ -187,7 +187,7 @@ const { chromium } = require('playwright-core');
 cd /tmp/playwright-cdp && node -e "
 const { chromium } = require('playwright-core');
 (async () => {
-  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const pages = browser.contexts()[0].pages();
 
   pages.forEach((p, i) =>
@@ -237,10 +237,11 @@ sleep 0.5
 
 ### Launch and verify
 
-Launch the browser in the background, then loop until the CDP endpoint is ready:
+Launch the browser **headless-first** (most reliable across environments). Fall back to non-headless only if you need visual interaction:
 
 ```bash
 $BROWSER \
+  --headless \
   --remote-debugging-port=9222 \
   --user-data-dir=/tmp/chrome-cdp-profile \
   --no-first-run \
@@ -249,7 +250,7 @@ $BROWSER \
 
 # Wait for CDP endpoint to become available (up to 10s)
 for i in $(seq 1 20); do
-  if curl -s http://localhost:9222/json/version | jq -r '.webSocketDebuggerUrl' 2>/dev/null; then
+  if curl -s http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
     echo "CDP ready"
     break
   fi
@@ -257,7 +258,7 @@ for i in $(seq 1 20); do
 done
 ```
 
-The `jq` pipe returns the WebSocket URL on success (non-zero exit otherwise), so the `if` condition is self-verifying.
+> Use `127.0.0.1` not `localhost` — Node may resolve `localhost` to IPv6 `::1` which Chromium often doesn't bind.
 
 ## Firefox
 
@@ -304,14 +305,7 @@ $BROWSER \
   ...
 ```
 
-If X11 is also unavailable (e.g. headless server), fall back to `--headless`:
-
-```bash
-$BROWSER \
-  --headless \
-  --remote-debugging-port=9222 \
-  ...
-```
+If X11 is also unavailable (e.g. headless server), use `--headless` (already the recommended default above).
 
 ### Port 9222 already in use
 
@@ -323,7 +317,21 @@ ss -tlnp | grep 9222
 lsof -i :9222
 ```
 
-Then `pkill -f "chrom.*9222"` and retry.
+Then `pkill -f "chrom.*9222"` and retry. Always use `127.0.0.1` in curl/Node scripts, not `localhost`.
+
+### `networkidle` never resolves on heavy sites
+
+Modern sites (news portals, social media, finance) maintain persistent connections for ads, analytics, and live updates — `waitUntil: 'networkidle'` can hang indefinitely. Use `domcontentloaded` with a generous timeout instead:
+
+```js
+await page.goto('https://yahoo.com', {
+  waitUntil: 'domcontentloaded',
+  timeout: 15000
+});
+await page.waitForTimeout(3000);
+```
+
+This loads the page content then gives JS a few seconds to render before taking the screenshot.
 
 ## Notes
 
