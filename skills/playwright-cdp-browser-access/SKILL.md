@@ -51,152 +51,103 @@ const { chromium } = require('playwright-core');
 "
 ```
 
-## Practical examples
+## Common actions
 
-### Screenshot a page after applying dark mode
+Assuming `page` is already set up (see [How to write a script](#how-to-write-a-script)):
 
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const context = browser.contexts()[0];
-  const page = context.pages()[0];
+```js
+// open
+await page.goto('https://example.com');
 
-  await page.goto('http://localhost:3000/es/evaluate?q=hola');
-  await page.waitForTimeout(3000);
+// click
+await page.click('button.submit');
 
-  await page.evaluate(() =>
-    document.documentElement.classList.add('dark')
-  );
-  await page.waitForTimeout(500);
+// dblclick
+await page.dblclick('#item');
 
-  await page.screenshot({
-    path: '/tmp/verify-evaluate-dark.png',
-    fullPage: false
-  });
-  console.log('Screenshot saved to /tmp/verify-evaluate-dark.png');
+// type (keystroke-by-keystroke, appends to existing text)
+await page.type('input[name="q"]', 'hello world');
 
-  await browser.close();
-})();
-"
-```
+// fill (clears field first)
+await page.fill('input[name="email"]', 'user@example.com');
 
-### Full-page screenshot of the current active page
+// press a key
+await page.keyboard.press('Enter');
+await page.keyboard.press('Control+a');
 
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const page = browser.contexts()[0].pages()[0];
+// hover
+await page.hover('#menu-trigger');
 
-  await page.screenshot({ path: '/tmp/screenshot.png', fullPage: true });
-  console.log('Saved /tmp/screenshot.png');
+// focus
+await page.focus('input[name="search"]');
 
-  await browser.close();
-})();
-"
-```
+// check / uncheck
+await page.check('#agree');
+await page.uncheck('#newsletter');
 
-### Open a new tab in the existing browser
+// select dropdown option
+await page.selectOption('select#country', 'US');          // by value
+await page.selectOption('select#country', { label: 'United States' }); // by label
 
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const context = browser.contexts()[0];
+// drag and drop
+await page.dragAndDrop('#source', '#target');
 
-  const page = await context.newPage();
-  await page.goto('https://github.com', { timeout: 15000 });
-  await page.waitForTimeout(2000);
+// upload file(s)
+await page.setInputFiles('input[type="file"]', '/path/to/file.pdf');
+await page.setInputFiles('input[type="file"]', ['/a.pdf', '/b.pdf']); // multiple
 
-  await page.screenshot({ path: '/tmp/github.png' });
-  console.log('Saved /tmp/github.png');
+// download (click trigger, wait for download)
+const [download] = await Promise.all([
+  page.waitForEvent('download'),
+  page.click('#download-btn'),
+]);
+await download.saveAs('/tmp/file.csv');
 
-  await browser.close();
-})();
-"
-```
+// scroll
+await page.evaluate(() => window.scrollBy(0, 500));      // down 500px
+await page.evaluate(() => window.scrollBy(0, -500));      // up 500px
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); // bottom
 
-### Evaluate and extract data from the DOM
+// scroll into view
+await page.locator('#footer').scrollIntoViewIfNeeded();
 
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const page = browser.contexts()[0].pages()[0];
+// wait
+await page.waitForSelector('.result');                   // element appears
+await page.waitForTimeout(2000);                        // fixed delay (last resort)
+await page.waitForNavigation();                           // nav completes
+await page.waitForURL('**/dashboard');                   // URL matches
+await page.waitForFunction(() => document.readyState === 'complete'); // JS condition
 
-  const heading = await page.evaluate(() =>
-    document.querySelector('h1')?.innerText
-  );
-  console.log('Heading:', heading);
+// screenshot
+await page.screenshot({ path: '/tmp/shot.png' });
+await page.screenshot({ path: '/tmp/full.png', fullPage: true });
 
-  await browser.close();
-})();
-"
+// pdf
+await page.pdf({ path: '/tmp/page.pdf', format: 'A4' });
+
+// eval (run JS in page context, return value)
+const title = await page.evaluate(() => document.title);
+const count = await page.evaluate(() => document.querySelectorAll('.item').length);
 ```
 
 ## Working with existing tabs
 
-`connectOverCDP` attaches to the **browser**, not a single tab. After connecting, iterate `context.pages()` to find the tab you want.
+`connectOverCDP` attaches to the **browser**, not a single tab. Use `context.pages()` to list tabs, `.find()` to locate one by URL, or `context.newPage()` to create one:
 
-### Script 1: create a tab and exit
+```js
+const context = browser.contexts()[0];
 
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const context = browser.contexts()[0];
-  const page = await context.newPage();
+// List open tabs
+const pages = context.pages();
+for (const [i, p] of pages.entries()) console.log(i, p.url(), await p.title());
 
-  await page.goto('https://example.com', { timeout: 15000 });
-  console.log('Tab URL:', page.url());
+// Create a new tab
+const newTab = await context.newPage();
+await newTab.goto('https://example.com', { timeout: 15000 });
 
-  await browser.close();  // closes the connection, keeps the browser running
-})();
-"
-```
-
-### Script 2: pick up where script 1 left off
-
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const page = browser.contexts()[0].pages()
-    .find(p => p.url().includes('example.com'));
-
-  if (!page) throw new Error('Tab not found');
-
-  await page.screenshot({ path: '/tmp/resume.png' });
-  console.log('Screenshot saved');
-
-  await browser.close();
-})();
-"
-```
-
-### List all open tabs
-
-```bash
-cd /tmp/playwright-cdp && node -e "
-const { chromium } = require('playwright-core');
-(async () => {
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const pages = browser.contexts()[0].pages();
-
-  pages.forEach((p, i) =>
-    console.log(i, p.url(), await p.title())
-  );
-
-  await browser.close();
-})();
-"
+// Find an existing tab by URL
+const existing = context.pages().find(p => p.url().includes('example.com'));
+if (!existing) throw new Error('Tab not found');
 ```
 
 > **Why not connect directly to a tab WS?** CDP does expose per-tab endpoints (`ws://.../devtools/page/<id>`), but Playwright's `connectOverCDP` expects a **browser** endpoint and returns a `Browser` object. Use the browser endpoint and select from `pages()`.
@@ -264,22 +215,13 @@ done
 
 `connectOverCDP` supports **Chromium** (stable) and **WebKit** — experimental (Playwright v1.61+, via the `transport` overload). Firefox does not expose a CDP endpoint that Playwright can attach to.
 
-For Firefox, launch a new browser via Playwright instead:
+For Firefox, launch a new browser via Playwright instead — use the same boilerplate as the minimal example, but replace `chromium.connectOverCDP(...)` with:
 
-```bash
-cd /tmp/playwright-cdp && node -e "
+```js
 const { firefox } = require('playwright-core');
-(async () => {
-  const browser = await firefox.launch({ headless: false });
-  const page = await browser.newPage();
-
-  await page.goto('https://example.com');
-  await page.screenshot({ path: '/tmp/firefox.png' });
-  console.log('Saved /tmp/firefox.png');
-
-  await browser.close();
-})();
-"
+const browser = await firefox.launch({ headless: false });
+const page = await browser.newPage();
+// ... then use Common actions as usual
 ```
 
 > ⚠️ `firefox.launch()` requires the Playwright Firefox browser binary. Install it with `npx playwright-core install firefox` (~80 MB). This is **not** the system Firefox; Playwright patches its own copy for automation stability.
