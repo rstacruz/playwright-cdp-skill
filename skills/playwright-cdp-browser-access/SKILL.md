@@ -5,7 +5,14 @@ description: Use Playwright to connect to an existing Chrome or Chromium browser
 
 # Playwright CDP Browser Access
 
-Connect Playwright to an existing browser via Chrome DevTools Protocol (CDP). This is useful for automating a browser you already launched (e.g. Chrome with `--remote-debugging-port=9222`) without spawning a new one.
+Automate a Chrome/Chromium browser via CDP using Playwright — connect to an existing instance or launch one on demand.
+
+### Before you start
+
+1. **Set up the project** — one-time `npm install` (see [Project setup](#project-setup))
+2. **Ensure a browser is running** — `cdp-launch` connects or starts one (see [Launching a CDP browser](#launching-a-cdp-browser))
+
+Then write scripts that connect to `http://127.0.0.1:9222`.
 
 ## Project setup
 
