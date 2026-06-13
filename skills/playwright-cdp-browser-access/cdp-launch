@@ -10,6 +10,7 @@
 #   cdp-launch --browser /usr/bin/chromium  # explicit binary
 #   cdp-launch --profile /tmp/my-profile    # custom user-data-dir
 #   cdp-launch --timeout 15             # seconds to wait for readiness (default 10)
+#   cdp-launch --no-sandbox              # add --no-sandbox for restricted environments
 #
 # Output: the CDP WebSocket URL on stdout (e.g. http://127.0.0.1:9222)
 # Exit: 0 if ready, 1 if failed
@@ -18,6 +19,7 @@ set -euo pipefail
 
 PORT=9222
 HEADED=false
+NO_SANDBOX=false
 BROWSER=""
 PROFILE=""
 TIMEOUT=10
@@ -30,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --browser)  BROWSER="$2"; shift 2 ;;
     --profile)  PROFILE="$2"; shift 2 ;;
     --timeout)  TIMEOUT="$2"; shift 2 ;;
+    --no-sandbox) NO_SANDBOX=true; shift ;;
     -h|--help)  sed -n '2,/^$/p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *)          echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
@@ -37,9 +40,21 @@ done
 
 cdp_url="http://${HOST}:${PORT}"
 
+# --- Ensure playwright-core is installed ---
+if [ ! -d /tmp/playwright-cdp/node_modules/playwright-core ]; then
+  echo "Installing playwright-core..." >&2
+  mkdir -p /tmp/playwright-cdp
+  cd /tmp/playwright-cdp
+  npm init -y --silent >/dev/null 2>&1
+  npm install playwright-core --silent 2>&1 >&2
+fi
+
+echo "Project ready: /tmp/playwright-cdp" >&2
+
 # --- Already running? Connect and exit ---
-if curl -sf "${cdp_url}/json/version" >/dev/null 2>&1; then
-  echo "${cdp_url} (already running)"
+if version_info=$(curl -sf "${cdp_url}/json/version" 2>&1); then
+  echo "Browser ready: ${cdp_url} (already running)"
+  echo "$version_info"
   exit 0
 fi
 
@@ -68,6 +83,9 @@ echo "Launching ${BROWSER}..." >&2
 headless_flag="--headless"
 [[ "$HEADED" == true ]] && headless_flag=""
 
+sandbox_flag=""
+[[ "$NO_SANDBOX" == true ]] && sandbox_flag="--no-sandbox"
+
 if [[ -z "$PROFILE" ]]; then
   PROFILE="/tmp/chrome-cdp-profile-${PORT}"
 fi
@@ -75,6 +93,7 @@ mkdir -p "$PROFILE"
 
 "$BROWSER" \
   $headless_flag \
+  $sandbox_flag \
   --remote-debugging-port="$PORT" \
   --user-data-dir="$PROFILE" \
   --no-first-run \
@@ -84,8 +103,9 @@ mkdir -p "$PROFILE"
 # --- Wait for readiness ---
 elapsed=0
 while [[ $elapsed -lt $TIMEOUT ]]; do
-  if curl -sf "${cdp_url}/json/version" >/dev/null 2>&1; then
-    echo "${cdp_url} (${BROWSER})"
+  if version_info=$(curl -sf "${cdp_url}/json/version" 2>&1); then
+    echo "Browser ready: ${cdp_url} (${BROWSER})"
+    echo "$version_info"
     exit 0
   fi
   sleep 1

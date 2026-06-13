@@ -9,30 +9,7 @@ Automate a Chrome/Chromium browser via CDP using Playwright — connect to an ex
 
 ### Before you start
 
-1. **Set up the project** — one-time `npm install` (see [Project setup](#project-setup))
-2. **Ensure a browser is running** — `cdp-launch` connects or starts one (see [Launching a CDP browser](#launching-a-cdp-browser))
-
-Then write scripts that connect to `http://127.0.0.1:9222`.
-
-## Project setup
-
-The skill uses a temporary Node project at `/tmp/playwright-cdp/`.
-
-### Create the project (one-time)
-
-```bash
-if [ ! -d /tmp/playwright-cdp/node_modules/playwright-core ]; then
-mkdir -p /tmp/playwright-cdp
-cd /tmp/playwright-cdp
-
-# install only the core library (no bundled browsers)
-npm init -y && npm install playwright-core
-fi
-```
-
-## Launching a CDP browser
-
-Use the `<SKILL_DIR>/cdp-launch` script — it connects to an existing browser or launches one if none is running:
+Run `<SKILL_DIR>/cdp-launch` — it installs playwright-core if needed, then connects to an existing browser or launches one:
 
 ```bash
 $SKILL_DIR/cdp-launch                        # default port 9222, headless
@@ -47,9 +24,9 @@ Prints the CDP URL (e.g. `http://127.0.0.1:9222`) and exits 0 when ready. Exits 
 
 > Use `127.0.0.1` not `localhost` — Node may resolve `localhost` to IPv6 `::1` which Chromium doesn't bind.
 
-## How to write a script
+Then write scripts that connect to `http://127.0.0.1:9222`.
 
-Scripts are plain Node.js executed with `node -e` or written to a file in `/tmp/playwright-cdp/`. The pattern:
+## How to write a script
 
 1. `require('playwright-core')`
 2. `chromium.connectOverCDP('http://127.0.0.1:9222')`
@@ -223,7 +200,23 @@ await page.goto('https://yahoo.com', {
 await page.waitForTimeout(3000);
 ```
 
-This loads the page content then gives JS a few seconds to render before taking the screenshot.
+If even `domcontentloaded` times out (ad scripts or CDN stalls can block it), fall back to `'commit'` and wait explicitly:
+
+```js
+await page.goto('https://yahoo.com', { waitUntil: 'commit', timeout: 30000 });
+await page.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
+await page.waitForTimeout(5000);
+```
+
+`'commit'` resolves as soon as the server responds (HTTP 200). Then wait for `load` (best-effort) and give JS rendering time. The page is ready even if the load event never fires.
+
+### Browser fails on restricted environments
+
+On some Linux/NixOS environments the Chromium sandbox prevents the browser from starting. Pass `--no-sandbox` to `cdp-launch`:
+
+```bash
+$SKILL_DIR/cdp-launch --no-sandbox
+```
 
 ## Notes
 
