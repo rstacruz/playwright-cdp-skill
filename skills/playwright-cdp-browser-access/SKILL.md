@@ -23,12 +23,29 @@ npm init -y && npm install playwright-core
 fi
 ```
 
+## Launching a CDP browser
+
+Use the `<SKILL_DIR>/cdp-launch` script — it connects to an existing browser or launches one if none is running:
+
+```bash
+$SKILL_DIR/cdp-launch                        # default port 9222, headless
+$SKILL_DIR/cdp-launch --port 9333            # specific port
+$SKILL_DIR/cdp-launch --headed               # show the window
+$SKILL_DIR/cdp-launch --browser /usr/bin/chromium  # explicit binary
+$SKILL_DIR/cdp-launch --profile /tmp/my-profile    # custom user-data-dir
+$SKILL_DIR/cdp-launch --timeout 15           # seconds to wait (default 10)
+```
+
+Prints the CDP URL (e.g. `http://127.0.0.1:9222`) and exits 0 when ready. Exits 1 if launch fails.
+
+> Use `127.0.0.1` not `localhost` — Node may resolve `localhost` to IPv6 `::1` which Chromium doesn't bind.
+
 ## How to write a script
 
 Scripts are plain Node.js executed with `node -e` or written to a file in `/tmp/playwright-cdp/`. The pattern:
 
 1. `require('playwright-core')`
-2. `chromium.connectOverCDP('http://127.0.0.1:9222')` — **use `127.0.0.1` not `localhost`** (Node may resolve `localhost` to IPv6 `::1`, which Chromium often doesn't bind)
+2. `chromium.connectOverCDP('http://127.0.0.1:9222')`
 3. Pick a context and page (or create new ones)
 4. Automate
 5. Close the browser
@@ -152,80 +169,6 @@ if (!existing) throw new Error('Tab not found');
 
 > **Why not connect directly to a tab WS?** CDP does expose per-tab endpoints (`ws://.../devtools/page/<id>`), but Playwright's `connectOverCDP` expects a **browser** endpoint and returns a `Browser` object. Use the browser endpoint and select from `pages()`.
 
-## Launching a CDP browser manually
-
-If no browser is listening on port 9222, launch one first.
-
-### Find the browser binary
-
-Browser binary names vary by distro and install method. Resolve with a fallback chain:
-
-```bash
-# Linux — try common names in order
-BROWSER=$(which google-chrome 2>/dev/null \
-  || which chromium-browser 2>/dev/null \
-  || which chromium 2>/dev/null \
-  || which google-chrome-stable 2>/dev/null)
-
-# macOS — Chromium-based browsers
-BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-# Fallbacks:
-#   /Applications/Chromium.app/Contents/MacOS/Chromium
-#   /Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary
-#   /Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge
-#   /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
-```
-
-### Pre-launch cleanup
-
-Kill any stale instance still holding port 9222 (otherwise the new launch will fail silently):
-
-```bash
-# Kill any existing Chromium on port 9222
-pkill -f "chrom.*9222" 2>/dev/null || true
-sleep 0.5
-```
-
-### Launch and verify
-
-Launch the browser **headless-first** (most reliable across environments). Fall back to non-headless only if you need visual interaction:
-
-```bash
-$BROWSER \
-  --headless \
-  --remote-debugging-port=9222 \
-  --user-data-dir=/tmp/chrome-cdp-profile \
-  --no-first-run \
-  --no-default-browser-check \
-  &>/tmp/chromium-cdp.log &
-
-# Wait for CDP endpoint to become available (up to 10s)
-for i in $(seq 1 20); do
-  if curl -s http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
-    echo "CDP ready"
-    break
-  fi
-  sleep 0.5
-done
-```
-
-> Use `127.0.0.1` not `localhost` — Node may resolve `localhost` to IPv6 `::1` which Chromium often doesn't bind.
-
-## Firefox
-
-`connectOverCDP` supports **Chromium** (stable) and **WebKit** — experimental (Playwright v1.61+, via the `transport` overload). Firefox does not expose a CDP endpoint that Playwright can attach to.
-
-For Firefox, launch a new browser via Playwright instead — use the same boilerplate as the minimal example, but replace `chromium.connectOverCDP(...)` with:
-
-```js
-const { firefox } = require('playwright-core');
-const browser = await firefox.launch({ headless: false });
-const page = await browser.newPage();
-// ... then use Common actions as usual
-```
-
-> ⚠️ `firefox.launch()` requires the Playwright Firefox browser binary. Install it with `npx playwright-core install firefox` (~80 MB). This is **not** the system Firefox; Playwright patches its own copy for automation stability.
-
 ## Troubleshooting
 
 ### Browser fails to launch (non-headless) on Wayland
@@ -259,7 +202,7 @@ ss -tlnp | grep 9222
 lsof -i :9222
 ```
 
-Then `pkill -f "chrom.*9222"` and retry. Always use `127.0.0.1` in curl/Node scripts, not `localhost`.
+Then `pkill -f "chrom.*9222"` and retry.
 
 ### `networkidle` never resolves on heavy sites
 
